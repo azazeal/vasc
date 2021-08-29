@@ -1,0 +1,44 @@
+version: '3.7'
+
+services:
+
+  varnish:
+    image: varnish:6.6-alpine
+    secrets:
+      - varnish
+    command:
+      -T :8080
+      -p cli_limit=1024b
+      -p connect_timeout=5
+      -S /run/secrets/varnish
+      -i a3355f7f
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  varnish-insecure:
+    image: varnish:6.6-alpine
+    secrets:
+      - varnish
+    command:
+      -T :8080
+      -p cli_limit=1024b
+      -p connect_timeout=5
+      -i a3355f7e
+      -S none
+    ports:
+      - "127.0.0.1:8081:8080"
+
+  vasc:
+    depends_on:
+      - varnish
+      - varnish-insecure
+    build:
+      context: .
+      args: 
+        GO: ${GO:-1.17}
+    volumes:
+      - ./artifacts:/artifacts
+
+secrets:
+  varnish:
+    file: ./testdata/secret
