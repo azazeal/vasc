@@ -6,6 +6,63 @@
 
 Package vasc implements a client for Varnish Administrative Socket interfaces.
 
-## Usage
+## Simple usage
 
-TBD.
+Assuming you have a Varnish instance
+
+1. on host `varnish`
+2. listening on port `10000`
+3. with its secret being `mySuperStronkVarnishSecret`
+
+then in order to retrieve the instance's `pid` information, you'd want to use
+something like this:
+
+```go
+package main
+
+import (
+	"log"
+	"time"
+
+	"github.com/azazeal/vasc"
+)
+
+func main() {
+	cfg := vasc.Config{
+		Secret:       "mySuperStronkVarnishSecret",
+		ReadTimeout:  time.Minute, // Maximum amount of time to allow for reads
+		WriteTimeout: time.Minute, // Maximum amount of time to allow for writes
+	}
+
+	client, err := vasc.Dial("tcp", "localhost:10000", cfg)
+	if err != nil {
+		log.Fatalf("failed dialing varnish: %v", err)
+	}
+	defer client.Close()
+
+	code, data, err := client.Execute(nil, "pid", "-j")
+	switch {
+	case err != nil:
+		log.Fatalf("failed executing: %v", err)
+	case code == vasc.StatusClose:
+		log.Fatal("varnish closed the connection!")
+	case code != vasc.StatusOK:
+		log.Fatalf("request failed with status: %d", code)
+	}
+
+	var pid struct {
+		Master int `json:"master"`
+		Worker int `json:"worker"`
+	}
+
+	if err := vasc.UnmarshalJSONResponse(data, &pid); err != nil {
+		log.Fatalf("failed unmarshaling JSON response: %v", err)
+	}
+
+	log.Printf("master pid: %d", pid.Master)
+	log.Printf("worker pid: %d", pid.Worker)
+}
+```
+
+The full list of commands that Varnish supports may be found
+[here](https://varnish-cache.org/docs/7.0/reference/varnish-cli.html#commands).
