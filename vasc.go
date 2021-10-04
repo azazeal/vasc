@@ -2,55 +2,58 @@
 package vasc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/azazeal/vasc/internal/auth"
 )
 
+// The set of Varnish response status codes.
 const (
-	// DefaultConnectTimeout denotes the default connect timeout.
-	DefaultConnectTimeout = time.Second << 3
-
-	// DefaultReadTimeout denotes the default read timeout.
-	DefaultReadTimeout = time.Minute >> 1
-
-	// DefaultWriteTimeout denotes the default write timeout.
-	DefaultWriteTimeout = time.Minute
+	StatusSyntax        = 100
+	StatusUnknown       = 101
+	StatusUnimplemented = 102
+	StatusTooFew        = 104
+	StatusTooMany       = 105
+	StatusParam         = 106
+	statusAuth          = 107
+	StatusOK            = 200
+	StatusContinue      = 201
+	StatusCannot        = 300
+	StatusComms         = 400
+	StatusClose         = 500
 )
 
-// Config wraps the configuration for instances of Client.
+// Config holds the configuration for instances of Client.
 type Config struct {
-	// Secret is the
+	// Secret is the secret the Varnish instance uses. Leave empty when
+	// connecting to insecure Varnish instances.
 	Secret string
 
-	// ConnectTimeout denotes the maximum amount of time to wait while
-	// connecting to the varnish instance.
-	ConnectTimeout time.Duration
-
 	// ReadTimeout denotes the maximum amount of time to wait while reading from
-	// the varnish instance. Values less than 1 mean no read timeout.
+	// the remote Varnish instance. Values less than 1 mean no read timeout.
 	ReadTimeout time.Duration
 
 	// WriteTimeout denotes the maximum amount of time to wait while writing to
-	// the varnish instance. Values less than 1 mean no read timeout.
+	// the remote Varnish instance. Values less than 1 mean no write timeout.
 	WriteTimeout time.Duration
 }
 
-// Client wraps the functionality of a Varnish Administrative Socket Client.
+// Client implements a Varnish administrative socket client.
 //
-// Instances of Client returned by Handshake are safe for concurrent use.
+// Instances of Client are safe for concurrent use by multiple callers.
 type Client struct {
 	mu         sync.Mutex
 	conn       net.Conn
 	cfg        Config
-	in         []byte // buffer for incoming messages
-	out        []byte // buffer for outgoing messages
+	in         []byte   // buffer for incoming messages
+	out        []byte   // buffer for outgoing messages
+	header     [13]byte // buffer for headers
 	closeOnce  sync.Once
 	closeError error
 }
@@ -64,49 +67,132 @@ func (c *Client) Close() error {
 	return c.closeError
 }
 
-// Handshake returns a new Client running on the given Conn after performing
-// the initial handshake.
+// Dial is shorthand for DialTimeout(network, address, time.Minute>>1).
+func Dial(network, address string, cfg Config) (*Client, error) {
+	return DialTimeout(network, address, cfg, time.Minute>>1)
+}
+
+// DialTimeout calls DialContext with the given arguments and a context with
+// the given timeout.
+func DialTimeout(network, address string, cfg Config, timeout time.Duration) (*Client, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return DialContext(ctx, network, address, cfg)
+}
+
+var dialer net.Dialer
+
+// DialContext acts like Dial but takes a context. It behaves similarly to the
+// net.Dialer's DialContext function.
+func DialContext(ctx context.Context, network, address string, cfg Config) (*Client, error) {
+	conn, err := dialer.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := From(conn, cfg)
+	if err != nil {
+		_ = conn.Close()
+	}
+
+	return client, err
+}
+
+// From returns a new Client running on conn.
 //
 // In case of an error callers should close conn. Alternatively, callers must
-// not retain access to conn.
-func Handshake(conn net.Conn, cfg Config) (*Client, error) {
-	c := &Client{
+// not retain access to it.
+func From(conn net.Conn, cfg Config) (*Client, error) {
+	client := &Client{
 		conn: conn,
 		cfg:  cfg,
 	}
 
-	if err := c.handshake(); err != nil {
+	if err := handshake(client); err != nil {
 		return nil, err
 	}
 
-	return c, nil
+	return client, nil
 }
 
-func (c *Client) handshake() (err error) {
-	switch err = c.next(); {
-	default:
-		return
-	case err == nil:
-		return nil // no auth required
-	case errors.Is(err, errAuth):
-		break // we have to login
-	}
+var errHandshakeFailed = errors.New("vasc: handshake failed")
 
-	if len(c.in) < auth.Size {
-		err = errHandshakeFailed
+// IsHandshakeFailed reports whether any error in err's chain occured due to the
+// handshake with the Varnish instance failing.
+func IsHandshakeFailed(err error) bool {
+	return errors.Is(err, errHandshakeFailed)
+}
 
-		return
-	}
+type errUnexpectedHandshakeStatusCode int
 
-	if err = c.auth(c.in[:auth.Size]); err != nil {
-		return
-	}
+func (err errUnexpectedHandshakeStatusCode) Error() string {
+	return fmt.Sprintf("vasc: unexpected handshake status code %d", err)
+}
 
-	if err = c.next(); err != nil {
-		err = errHandshakeFailed
+// IsUnexpectedHandshakeStatusCode reports whether any error in err's chain
+// occured due to the Varnish instance returning an unexpected status code
+// during handshake.
+func IsUnexpectedHandshakeStatusCode(err error) (is bool) {
+	for err != nil {
+		if _, is = err.(errUnexpectedHandshakeStatusCode); is {
+			break
+		}
+
+		err = errors.Unwrap(err)
 	}
 
 	return
+}
+
+type errHandshakeChallengeTooShort int
+
+func (err errHandshakeChallengeTooShort) Error() string {
+	return fmt.Sprintf("vasc: handshake challenge too short (len: %d)", err)
+}
+
+// IsHandshakeChallengeTooShort reports whether any error in err's chain occured
+// due to the Varnish instance returning an authentication challenge that's too
+// short during handshake.
+func IsHandshakeChallengeTooShort(err error) (is bool) {
+	for err != nil {
+		if _, is = err.(errHandshakeChallengeTooShort); is {
+			break
+		}
+
+		err = errors.Unwrap(err)
+	}
+
+	return
+}
+
+func handshake(c *Client) error {
+	switch code, err := c.response(); {
+	case err != nil:
+		return err
+	case code == StatusOK:
+		return nil // no need to login
+	case code != statusAuth:
+		return errUnexpectedHandshakeStatusCode(code)
+	case len(c.in) < auth.Size:
+		return errHandshakeChallengeTooShort(len(c.in))
+	}
+
+	// we have to login
+	if err := c.auth(c.in[:auth.Size]); err != nil {
+		return err
+	}
+
+	switch code, err := c.response(); {
+	case err != nil:
+		return err
+	case code == StatusClose:
+		return errHandshakeFailed
+	case code != StatusOK:
+		return errUnexpectedHandshakeStatusCode(code)
+	default:
+		return nil
+	}
 }
 
 func (c *Client) auth(challenge []byte) error {
@@ -134,94 +220,71 @@ func (c *Client) flush() (err error) {
 		c.out = c.out[:0]
 	}()
 
-	if err = c.setWriteTimeout(); err != nil {
-		return
+	if err = c.setWriteTimeout(); err == nil {
+		_, err = c.conn.Write(c.out)
 	}
-
-	var n int
-	n, err = c.conn.Write(c.out)
-	sent(c.out[:n])
 
 	return
 }
 
-func (c *Client) next() error {
-	c.in = c.in[:0]
-
-	if err := c.setReadTimeout(); err != nil {
-		return err
+func (c *Client) setReadTimeout() (err error) {
+	if v := c.cfg.ReadTimeout; v > 0 {
+		d := time.Now().Add(v)
+		err = c.conn.SetReadDeadline(d)
 	}
 
-	var size int
-	code, size, err := c.header()
-	if err != nil {
-		return err
-	}
-
-	if s := size + 1; cap(c.in) < s {
-		c.in = make([]byte, s)
-	} else {
-		c.in = c.in[:s]
-	}
-
-	size, err = io.ReadFull(c.conn, c.in)
-	c.in = c.in[:size]
-	read(c.in)
-
-	if err == nil {
-		err = codeToError(code, size)
-	}
-	return err
+	return
 }
 
-func (c *Client) setReadTimeout() error {
-	v := c.cfg.ReadTimeout
-	if v < 1 {
-		return nil
+func (c *Client) setWriteTimeout() (err error) {
+	if v := c.cfg.WriteTimeout; v > 0 {
+		d := time.Now().Add(v)
+		err = c.conn.SetWriteDeadline(d)
 	}
 
-	d := time.Now().Add(v)
-	return c.conn.SetReadDeadline(d)
+	return
 }
 
-func (c *Client) setWriteTimeout() error {
-	v := c.cfg.WriteTimeout
-	if v < 1 {
-		return nil
+type errInvalidResponseHeader string
+
+func (err errInvalidResponseHeader) Error() string {
+	return fmt.Sprintf("vasc: invalid response header %q", string(err))
+}
+
+// IsInvalidResponseHeader reports whether any error in err's chain occured due
+// to the remote Varnish instance returning a response with an invalid header.
+func IsInvalidResponseHeader(err error) (is bool) {
+	for err != nil {
+		if _, is = err.(errInvalidResponseHeader); is {
+			break
+		}
+
+		err = errors.Unwrap(err)
 	}
 
-	d := time.Now().Add(v)
-	return c.conn.SetWriteDeadline(d)
+	return
 }
 
-func (c *Client) header() (code, size int, err error) {
-	var data [13]byte
-	switch err = fillHeader(&data, c.conn); {
+func (c *Client) readHeader() (code, size int, err error) {
+	switch _, err = io.ReadFull(c.conn, c.header[:]); {
 	case err != nil:
 		return
-	case data[12] != '\n', data[3] != ' ':
-		err = ErrInvalidHeader(data[:])
+	case c.header[12] != '\n', c.header[3] != ' ':
+		err = errInvalidResponseHeader(c.header[:])
 
 		return
 	}
 
 	var ok bool
-	if code, ok = parseHeaderInt(data[:3], false); ok {
-		size, ok = parseHeaderInt(data[4:], true)
+	if code, ok = parseHeaderInt(c.header[:3], false); ok {
+		size, ok = parseHeaderInt(c.header[4:], true)
 	}
 
 	if !ok {
-		err = ErrInvalidHeader(data[:])
+		err = errInvalidResponseHeader(c.header[:])
 	}
 
 	return
-}
-
-func fillHeader(h *[13]byte, r io.Reader) error {
-	n, err := io.ReadFull(r, h[:])
-	read(h[:n])
-
-	return err
 }
 
 func parseHeaderInt(b []byte, first bool) (int, bool) {
@@ -241,18 +304,49 @@ func parseHeaderInt(b []byte, first bool) (int, bool) {
 	return v, true
 }
 
-func sent(b []byte) {
-	if len(b) == 0 {
-		return
+// Execute instructs the remote Varnish instance to execute then given command
+// with the given arguments, appends the response into the given slice and
+// returns the response's status code, the returning slice and the first error
+// encountered, if any.
+func (c *Client) Execute(dst []byte, command string, args ...string) (code int, data []byte, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.out = append(c.out, command...)
+	for _, p := range args {
+		c.out = append(c.out, ' ')
+		c.out = append(c.out, p...)
+	}
+	c.out = append(c.out, '\n')
+
+	if err = c.flush(); err == nil {
+		code, err = c.response()
+		data = append(dst, c.in...)
 	}
 
-	fmt.Fprintf(os.Stderr, "|> %q\n", b)
+	return
 }
 
-func read(b []byte) {
-	if len(b) == 0 {
+func (c *Client) response() (code int, err error) {
+	c.in = c.in[:0]
+
+	if err = c.setReadTimeout(); err != nil {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "<| %q\n", b)
+	var size int
+	if code, size, err = c.readHeader(); err != nil {
+		return
+	}
+
+	if s := size + 1; cap(c.in) < s {
+		c.in = make([]byte, s)
+	} else {
+		c.in = c.in[:s]
+	}
+
+	size, err = io.ReadFull(c.conn, c.in)
+	c.in = c.in[:size]
+
+	return
 }

@@ -8,6 +8,8 @@ import (
 )
 
 func TestFromContext(t *testing.T) {
+	t.Parallel()
+
 	exp := new(Client)
 
 	got := FromContext(NewContext(context.Background(), exp))
@@ -15,5 +17,7 @@ func TestFromContext(t *testing.T) {
 }
 
 func TestFromContextPanics(t *testing.T) {
+	t.Parallel()
+
 	assert.Panics(t, func() { FromContext(context.Background()) })
 }

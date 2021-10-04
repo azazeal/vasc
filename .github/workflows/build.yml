@@ -28,27 +28,40 @@ jobs:
     name: Test
     needs: lint
     runs-on: ubuntu-latest
+
+    services:
+      secure:
+        image: azazeal/vasctest:latest
+        ports:
+          - 10000:10000
+
+      insecure:
+        image: azazeal/vasctest:latest
+        env:
+          INSECURE: true
+        ports:
+          - 10001:10000
+
     strategy:
       matrix:
         go: ['1.16', '1.17']
+
     steps:
+    - name: Install Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: ${{ matrix.go }}
     - name: Checkout code
       uses: actions/checkout@v2
-    - name: Create artifacts directory
-      run: |
-        rm -rf artifacts
-        mkdir artifacts
-    - name: Setup
-      env:
-        DOCKER_BUILDKIT: 1
-        COMPOSE_DOCKER_CLI_BUILD: 1
-      run: docker-compose build --pull --build-arg GO=${{ matrix.go }}
     - name: Run tests
-      run: docker-compose run --rm vasc
-    - name: Upload coverage report
+      if: ${{ matrix.go != '1.17' }}
+      run: go test -race ./...
+    - name: Run tests & generate coverage report
       if: ${{ matrix.go == '1.17' }}
+      run: |
+        go test -race -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+    - name: Upload coverage report
+      if: ${{ hashFiles('coverage.out') != '' }}
       uses: shogo82148/actions-goveralls@v1
       with:
-        path-to-profile: artifacts/coverage.out
-    - name: Teardown
-      run: docker-compose rm -v --stop --force
+        path-to-profile: coverage.out
