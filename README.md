@@ -39,7 +39,7 @@ func main() {
 		WriteTimeout: time.Minute, // Maximum amount of time to allow for writes
 	}
 
-	client, err := vasc.Dial("tcp", "localhost:10000", cfg)
+	client, err := vasc.Dial("tcp", "varnish:10000", cfg)
 	if err != nil {
 		log.Fatalf("failed dialing varnish: %v", err)
 	}
