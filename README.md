@@ -4,7 +4,7 @@
 
 # vasc
 
-Package vasc implements a client for Varnish Administrative Socket interfaces.
+Package vasc implements a Go client for Varnish Administrative Socket interfaces.
 
 # Disclaimer
 
