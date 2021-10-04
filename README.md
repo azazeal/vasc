@@ -6,6 +6,11 @@
 
 Package vasc implements a client for Varnish Administrative Socket interfaces.
 
+# Disclaimer
+
+`vasc` hasn't been used in the wild; it may be broken. Additionally, I offer
+no compatibility guarantees at this time.
+
 ## Simple usage
 
 Assuming you have a Varnish instance
