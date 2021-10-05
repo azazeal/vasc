@@ -4,12 +4,11 @@
 
 # vasc
 
-Package vasc implements a Go client for Varnish Administrative Socket interfaces.
+A Go client for Varnish's administrative socket interface.
 
-# Disclaimer
+## Disclaimer
 
-`vasc` hasn't been used in the wild; it may be broken. Additionally, I offer
-no compatibility guarantees at this time.
+`vasc` hasn't been used in the wild; it may very well be broken.
 
 ## Simple usage
 
@@ -69,5 +68,5 @@ func main() {
 }
 ```
 
-The full list of commands that Varnish supports may be found
+A list of commands that Varnish supports may be found
 [here](https://varnish-cache.org/docs/7.0/reference/varnish-cli.html#commands).
