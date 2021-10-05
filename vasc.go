@@ -72,7 +72,7 @@ func Dial(network, address string, cfg Config) (*Client, error) {
 	return DialTimeout(network, address, cfg, time.Minute>>1)
 }
 
-// DialTimeout calls DialContext with the given arguments and a context with
+// DialTimeout calls DialContext with the given arguments and a Context with
 // the given timeout.
 func DialTimeout(network, address string, cfg Config, timeout time.Duration) (*Client, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -304,8 +304,8 @@ func parseHeaderInt(b []byte, first bool) (int, bool) {
 	return v, true
 }
 
-// Execute instructs the remote Varnish instance to execute then given command
-// with the given arguments, appends the response into the given slice and
+// Execute instructs the remote Varnish instance to execute command
+// with the given arguments. It then appends its response data to dst and
 // returns the response's status code, the returning slice and the first error
 // encountered, if any.
 func (c *Client) Execute(dst []byte, command string, args ...string) (code int, data []byte, err error) {
