@@ -36,9 +36,10 @@ jobs:
           - 10000
         options: >-
           --health-cmd "nc -z localhost 10000"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 3
+          --health-interval 1s
+          --health-timeout 1s
+          --health-retries 10
+          --health-start-period 5s
 
       insecure:
         image: azazeal/vasctest:latest
@@ -48,13 +49,14 @@ jobs:
           - 10000
         options: >-
           --health-cmd "nc -z localhost 10000"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 3
+          --health-interval 1s
+          --health-timeout 1s
+          --health-retries 10
+          --health-start-period 5s
 
     strategy:
       matrix:
-        go: ['1.17', '1.18']
+        go: ['1.18', '1.19']
 
     steps:
     - name: Install Go
