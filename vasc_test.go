@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	secure   = "localhost:10000" // secure varnish test instance
-	insecure = "localhost:10001" // insecure varnish test instance
-	secret   = "supersecret"
+var (
+	secure   = os.Getenv("SECURE_HOST")   // secure varnish test instance
+	secret   = os.Getenv("SECRET")        // secure varnish instance's secret
+	insecure = os.Getenv("INSECURE_HOST") // insecure varnish test instance
 )
 
 func TestDialError(t *testing.T) {
