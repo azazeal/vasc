@@ -83,7 +83,7 @@ jobs:
         SECRET: supersecret
         INSECURE_HOST: localhost:${{ job.services.insecure.ports[10000] }}
     - name: Annotate Test Suite Results
-      if: always()
+      if: ${{ (success() || failure()) && hashFiles('gotestsum.json') != '' }}
       uses: guyarb/golang-test-annotations@v0.5.1
       with:
         test-results: gotestsum.json
