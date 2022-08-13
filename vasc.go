@@ -124,46 +124,32 @@ func IsHandshakeFailed(err error) bool {
 	return errors.Is(err, errHandshakeFailed)
 }
 
-type errUnexpectedHandshakeStatusCode int
+type unexpectedHandshakeStatusCodeError int
 
-func (err errUnexpectedHandshakeStatusCode) Error() string {
+func (err unexpectedHandshakeStatusCodeError) Error() string {
 	return fmt.Sprintf("vasc: unexpected handshake status code %d", err)
 }
 
 // IsUnexpectedHandshakeStatusCode reports whether any error in err's chain
 // occured due to the Varnish instance returning an unexpected status code
 // during handshake.
-func IsUnexpectedHandshakeStatusCode(err error) (is bool) {
-	for err != nil {
-		if _, is = err.(errUnexpectedHandshakeStatusCode); is {
-			break
-		}
-
-		err = errors.Unwrap(err)
-	}
-
-	return
+func IsUnexpectedHandshakeStatusCode(err error) bool {
+	var w unexpectedHandshakeStatusCodeError
+	return errors.As(err, &w)
 }
 
-type errHandshakeChallengeTooShort int
+type handshakeChallengeTooShortError int
 
-func (err errHandshakeChallengeTooShort) Error() string {
+func (err handshakeChallengeTooShortError) Error() string {
 	return fmt.Sprintf("vasc: handshake challenge too short (len: %d)", err)
 }
 
 // IsHandshakeChallengeTooShort reports whether any error in err's chain occured
 // due to the Varnish instance returning an authentication challenge that's too
 // short during handshake.
-func IsHandshakeChallengeTooShort(err error) (is bool) {
-	for err != nil {
-		if _, is = err.(errHandshakeChallengeTooShort); is {
-			break
-		}
-
-		err = errors.Unwrap(err)
-	}
-
-	return
+func IsHandshakeChallengeTooShort(err error) bool {
+	var w handshakeChallengeTooShortError
+	return errors.As(err, &w)
 }
 
 func handshake(c *Client) error {
@@ -173,9 +159,9 @@ func handshake(c *Client) error {
 	case code == StatusOK:
 		return nil // no need to login
 	case code != statusAuth:
-		return errUnexpectedHandshakeStatusCode(code)
+		return unexpectedHandshakeStatusCodeError(code)
 	case len(c.in) < auth.Size:
-		return errHandshakeChallengeTooShort(len(c.in))
+		return handshakeChallengeTooShortError(len(c.in))
 	}
 
 	// we have to login
@@ -189,7 +175,7 @@ func handshake(c *Client) error {
 	case code == StatusClose:
 		return errHandshakeFailed
 	case code != StatusOK:
-		return errUnexpectedHandshakeStatusCode(code)
+		return unexpectedHandshakeStatusCodeError(code)
 	default:
 		return nil
 	}
@@ -245,24 +231,17 @@ func (c *Client) setWriteTimeout() (err error) {
 	return
 }
 
-type errInvalidResponseHeader string
+type invalidResponseHeaderError string
 
-func (err errInvalidResponseHeader) Error() string {
+func (err invalidResponseHeaderError) Error() string {
 	return fmt.Sprintf("vasc: invalid response header %q", string(err))
 }
 
 // IsInvalidResponseHeader reports whether any error in err's chain occured due
 // to the remote Varnish instance returning a response with an invalid header.
-func IsInvalidResponseHeader(err error) (is bool) {
-	for err != nil {
-		if _, is = err.(errInvalidResponseHeader); is {
-			break
-		}
-
-		err = errors.Unwrap(err)
-	}
-
-	return
+func IsInvalidResponseHeader(err error) bool {
+	var w invalidResponseHeaderError
+	return errors.As(err, &w)
 }
 
 func (c *Client) readHeader() (code, size int, err error) {
@@ -270,7 +249,7 @@ func (c *Client) readHeader() (code, size int, err error) {
 	case err != nil:
 		return
 	case c.header[12] != '\n', c.header[3] != ' ':
-		err = errInvalidResponseHeader(c.header[:])
+		err = invalidResponseHeaderError(c.header[:])
 
 		return
 	}
@@ -281,7 +260,7 @@ func (c *Client) readHeader() (code, size int, err error) {
 	}
 
 	if !ok {
-		err = errInvalidResponseHeader(c.header[:])
+		err = invalidResponseHeaderError(c.header[:])
 	}
 
 	return

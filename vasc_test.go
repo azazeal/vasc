@@ -135,10 +135,12 @@ func testTranscript(t *testing.T, id int, predicate func(error) bool) {
 	defer conn.Close()
 
 	go func() {
-		srv.Write(data)
+		_, _ = srv.Write(data)
 		srv.Close()
 	}()
-	go io.Copy(io.Discard, srv)
+	go func() {
+		_, _ = io.Copy(io.Discard, srv)
+	}()
 
 	client, err := From(conn, newConfig(""))
 	assert.True(t, predicate(err))
@@ -146,7 +148,7 @@ func testTranscript(t *testing.T, id int, predicate func(error) bool) {
 }
 
 func TestInvalidResponseHeaderError(t *testing.T) {
-	fn := func(err errInvalidResponseHeader) bool {
+	fn := func(err invalidResponseHeaderError) bool {
 		return fmt.Sprintf("vasc: invalid response header %q", string(err)) ==
 			err.Error()
 	}
@@ -154,7 +156,7 @@ func TestInvalidResponseHeaderError(t *testing.T) {
 }
 
 func TestUnexpectedHandshakeStatusCodeError(t *testing.T) {
-	fn := func(err errUnexpectedHandshakeStatusCode) bool {
+	fn := func(err unexpectedHandshakeStatusCodeError) bool {
 		return fmt.Sprintf("vasc: unexpected handshake status code %d", err) ==
 			err.Error()
 	}
@@ -162,7 +164,7 @@ func TestUnexpectedHandshakeStatusCodeError(t *testing.T) {
 }
 
 func TestHandshakeChallengeTooShortError(t *testing.T) {
-	fn := func(err errHandshakeChallengeTooShort) bool {
+	fn := func(err handshakeChallengeTooShortError) bool {
 		return fmt.Sprintf("vasc: handshake challenge too short (len: %d)", err) ==
 			err.Error()
 	}
