@@ -1,4 +1,4 @@
-name: Build
+name: Build Package
 
 on:
   push:
@@ -16,28 +16,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Setup Go
-        uses: actions/setup-go@v3
-      - name: Checkout Code
-        uses: actions/checkout@v3
-      - name: Configure Linter
-        run: |
-          curl -O https://raw.githubusercontent.com/azazeal/workflows/master/.golangci.yml
-      - name: Run Linter
-        uses: golangci/golangci-lint-action@v3
-        with:
-          version: v1.48
+  call-lint:
+    name: Call Lint
+    uses: azazeal/workflows/.github/workflows/golint.yml@master
 
   test:
+    needs: call-lint
     name: Test
-    needs: lint
-    strategy:
-      matrix:
-        go: ['1.18', '1.19']
     runs-on: ubuntu-latest
     services:
       secure:
@@ -65,15 +50,18 @@ jobs:
           --health-start-period 5s
 
     steps:
-    - name: Install Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: ${{ matrix.go }}
-    - name: Install gotestsum
-      run: |
-        go install gotest.tools/gotestsum@v1.8.1
     - name: Checkout Code
       uses: actions/checkout@v3
+    - name: Setup Go
+      id: setup-go
+      uses: actions/setup-go@v3
+      with:
+        go-version-file: go.mod
+        cache: true
+        check-latest: true
+    - name: Install gotestsum
+      run: |
+        go install gotest.tools/gotestsum@v1
     - name: Run Test Suite
       run: |
         gotestsum -- -race -coverpkg=./... -coverprofile=coverprofile -covermode=atomic ./...
@@ -84,22 +72,11 @@ jobs:
         INSECURE_HOST: localhost:${{ job.services.insecure.ports[10000] }}
     - name: Annotate Test Suite Results
       if: ${{ (success() || failure()) && hashFiles('gotestsum.json') != '' }}
-      uses: guyarb/golang-test-annotations@v0.5.1
+      uses: guyarb/golang-test-annotations@v0.6.0
       with:
         test-results: gotestsum.json
     - name: Start Uploading Coverage Report
       uses: shogo82148/actions-goveralls@v1
       with:
         path-to-profile: coverprofile
-        flag-name: go${{ matrix.go }}
-        parallel: true
 
-  finalize:
-    name: Finalize
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Finalize Uploading Coverage Report
-        uses: shogo82148/actions-goveralls@v1
-        with:
-          parallel-finished: true
