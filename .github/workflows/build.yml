@@ -37,7 +37,7 @@ jobs:
 
     services:
       secure:
-        image: azazeal/vasctest:latest
+        image: azazeal/vasctest:f6fa22e
         ports:
           - 10000
         options: >-
@@ -48,7 +48,7 @@ jobs:
           --health-start-period 5s
 
       insecure:
-        image: azazeal/vasctest:latest
+        image: azazeal/vasctest:f6fa22e
         env:
           INSECURE: true
         ports:
